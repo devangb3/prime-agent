@@ -1,0 +1,206 @@
+#!/bin/sh
+
+set -u
+
+DPRIME_AGENT_REPOSITORY="${DPRIME_AGENT_REPOSITORY:-devangb3/prime-agent}"
+DPRIME_AGENT_RELEASE_TAG="${DPRIME_AGENT_RELEASE_TAG:-dprime-agent-main}"
+DPRIME_AGENT_RELEASE_BASE_URL="${DPRIME_AGENT_RELEASE_BASE_URL:-https://github.com/${DPRIME_AGENT_REPOSITORY}/releases/download/${DPRIME_AGENT_RELEASE_TAG}}"
+
+if [ "$(uname -s)" != "Linux" ] || [ "$(uname -m)" != "x86_64" ]; then
+	printf 'error: dprime-agent main builds support only Linux x86_64.\n' >&2
+	exit 1
+fi
+
+if [ -z "${HOME:-}" ]; then
+	printf 'error: HOME is not set.\n' >&2
+	exit 1
+fi
+
+for command in awk curl flock mktemp readlink sha256sum tar; do
+	if ! command -v "$command" >/dev/null 2>&1; then
+		printf 'error: dprime-agent requires %s.\n' "$command" >&2
+		exit 1
+	fi
+done
+
+data_root="${DPRIME_AGENT_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/dprime-agent}"
+builds_dir="$data_root/builds"
+current_link="$data_root/current"
+lock_file="$data_root/update.lock"
+current_executable="$current_link/dprime-agent"
+refresh_error=
+manifest_temp=
+archive_temp=
+entries_temp=
+stage_dir=
+next_link=
+
+mkdir -p "$builds_dir"
+exec 9>"$lock_file"
+
+cleanup() {
+	[ -z "$manifest_temp" ] || rm -f -- "$manifest_temp"
+	[ -z "$archive_temp" ] || rm -f -- "$archive_temp"
+	[ -z "$entries_temp" ] || rm -f -- "$entries_temp"
+	[ -z "$stage_dir" ] || rm -rf -- "$stage_dir"
+	[ -z "$next_link" ] || rm -f -- "$next_link"
+	flock -u 9 >/dev/null 2>&1 || true
+}
+
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+set_refresh_error() {
+	refresh_error="$1"
+	return 1
+}
+
+validate_manifest() {
+	manifest_commit=$(sed -n 's/^commit=//p' "$manifest_temp")
+	manifest_archive=$(sed -n 's/^archive=//p' "$manifest_temp")
+	manifest_sha256=$(sed -n 's/^sha256=//p' "$manifest_temp")
+
+	case "$manifest_commit" in
+		''|*[!0-9a-f]*) return 1 ;;
+	esac
+	[ "${#manifest_commit}" -eq 40 ] || return 1
+
+	expected_archive="dprime-agent-linux-x64-${manifest_commit}.tar.gz"
+	[ "$manifest_archive" = "$expected_archive" ] || return 1
+
+	case "$manifest_sha256" in
+		''|*[!0-9a-f]*) return 1 ;;
+	esac
+	[ "${#manifest_sha256}" -eq 64 ] || return 1
+}
+
+activate_release() {
+	target_dir="$builds_dir/$manifest_commit"
+	target_link="builds/$manifest_commit"
+
+	if [ "$(readlink "$current_link" 2>/dev/null || true)" = "$target_link" ] && [ -x "$current_executable" ]; then
+		return 0
+	fi
+
+	if ! flock -w 30 9; then
+		set_refresh_error "timed out waiting for another dprime-agent update"
+		return 1
+	fi
+
+	if [ "$(readlink "$current_link" 2>/dev/null || true)" = "$target_link" ] && [ -x "$current_executable" ]; then
+		flock -u 9
+		return 0
+	fi
+
+	archive_temp=$(mktemp "$data_root/.archive.XXXXXX") || {
+		flock -u 9
+		set_refresh_error "could not create a temporary archive"
+		return 1
+	}
+
+	if ! curl --fail --location --silent --show-error --connect-timeout 5 --retry 2 \
+		"$DPRIME_AGENT_RELEASE_BASE_URL/$manifest_archive" --output "$archive_temp"; then
+		flock -u 9
+		set_refresh_error "could not download $manifest_archive"
+		return 1
+	fi
+
+	actual_sha256=$(sha256sum "$archive_temp" | awk '{print $1}')
+	if [ "$actual_sha256" != "$manifest_sha256" ]; then
+		flock -u 9
+		set_refresh_error "checksum verification failed for $manifest_archive"
+		return 1
+	fi
+
+	entries_temp=$(mktemp "$data_root/.entries.XXXXXX") || {
+		flock -u 9
+		set_refresh_error "could not inspect the downloaded archive"
+		return 1
+	}
+	if ! tar -tzf "$archive_temp" >"$entries_temp"; then
+		flock -u 9
+		set_refresh_error "could not read the downloaded archive"
+		return 1
+	fi
+	if ! awk '
+		$0 !~ /^dprime-agent\// { invalid = 1 }
+		$0 ~ /(^|\/)\.\.($|\/)/ { invalid = 1 }
+		END { exit invalid }
+	' "$entries_temp"; then
+		flock -u 9
+		set_refresh_error "the downloaded archive contains an unsafe path"
+		return 1
+	fi
+
+	stage_dir=$(mktemp -d "$data_root/.build.XXXXXX") || {
+		flock -u 9
+		set_refresh_error "could not create a temporary build directory"
+		return 1
+	}
+	if ! tar -xzf "$archive_temp" -C "$stage_dir"; then
+		flock -u 9
+		set_refresh_error "could not extract the downloaded archive"
+		return 1
+	fi
+	if [ ! -x "$stage_dir/dprime-agent/dprime-agent" ]; then
+		flock -u 9
+		set_refresh_error "the downloaded archive does not contain the dprime-agent executable"
+		return 1
+	fi
+
+	rm -rf -- "$target_dir"
+	if ! mv "$stage_dir/dprime-agent" "$target_dir"; then
+		flock -u 9
+		set_refresh_error "could not activate the downloaded build"
+		return 1
+	fi
+	rm -rf -- "$stage_dir"
+	stage_dir=
+
+	next_link="$data_root/.current.$$"
+	rm -f -- "$next_link"
+	ln -s "$target_link" "$next_link"
+	mv -Tf "$next_link" "$current_link"
+	next_link=
+
+	for cached_build in "$builds_dir"/*; do
+		[ -d "$cached_build" ] || continue
+		[ "$cached_build" = "$target_dir" ] || rm -rf -- "$cached_build"
+	done
+
+	flock -u 9
+	return 0
+}
+
+refresh_release() {
+	manifest_temp=$(mktemp "$data_root/.manifest.XXXXXX") || {
+		set_refresh_error "could not create a temporary manifest"
+		return 1
+	}
+	if ! curl --fail --location --silent --connect-timeout 3 --max-time 10 \
+		"$DPRIME_AGENT_RELEASE_BASE_URL/dprime-agent-main.env" --output "$manifest_temp" 2>/dev/null; then
+		set_refresh_error "could not fetch the dprime-agent main manifest"
+		return 1
+	fi
+	if ! validate_manifest; then
+		set_refresh_error "the dprime-agent main manifest is invalid"
+		return 1
+	fi
+
+	rm -f -- "$manifest_temp"
+	manifest_temp=
+	activate_release
+}
+
+if ! refresh_release && [ ! -x "$current_executable" ]; then
+	printf 'error: %s, and no cached dprime-agent build is available.\n' "$refresh_error" >&2
+	exit 1
+fi
+
+if [ "${DPRIME_AGENT_UPDATE_ONLY:-0}" = "1" ]; then
+	exit 0
+fi
+
+exec "$current_executable" "$@"

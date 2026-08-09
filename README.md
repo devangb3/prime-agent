@@ -53,6 +53,16 @@ curl -fsSL https://app.primeintellect.ai/prime-agent/install.sh | sh
 
 The installer downloads a versioned release, verifies its SHA-256 checksum, installs the `prime-agent` command, and can prepare the IPython runtime used by the agent.
 
+### DPrime Agent main build
+
+This fork also publishes a Linux x86_64 standalone build from every successful push to `main`. Install its launcher with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/devangb3/prime-agent/main/scripts/install-dprime-agent.sh | sh
+```
+
+Run `dprime-agent` from any project directory. The launcher checks for a newer verified `main` build, falls back to its cached build when GitHub is unavailable, and preserves the directory where it was invoked.
+
 Start Prime Agent from the repository or directory you want it to work in:
 
 ```bash
