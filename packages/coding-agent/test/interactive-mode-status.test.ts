@@ -1244,7 +1244,10 @@ describe("InteractiveMode connection events", () => {
 		const renderSessionContextMock = vi.fn(async () => {});
 		const restoreStreamingMessageFromSnapshot = vi.fn(async () => {});
 		const fakeThis = {
-			agentConnection: { getInitialSnapshot: vi.fn(async () => snapshots.shift()!) },
+			agentConnection: {
+				getInitialSnapshot: vi.fn(async () => snapshots.shift()!),
+				getSessionStats: vi.fn(async () => undefined),
+			},
 			getSessionContextFromConnectionSnapshot: vi.fn(() => ({
 				messages: [],
 				thinkingLevel: "medium",
@@ -4109,6 +4112,8 @@ describe("InteractiveMode live context usage", () => {
 		activityTracker: { getStatus(): { tokens: number } };
 		contextUsageTokenBaseline: number;
 		contextUsageRefresh: { generation: number; lastSuccessGeneration: number };
+		subagentSummaryLine: { invalidate(): void };
+		ui: { requestRender(): void };
 		patchConnectionState(patch: Record<string, unknown>): void;
 		refreshConnectionContextUsage(): Promise<void>;
 	};
@@ -4124,6 +4129,8 @@ describe("InteractiveMode live context usage", () => {
 		fakeThis.activityTracker = { getStatus: () => ({ tokens: 0 }) };
 		fakeThis.contextUsageTokenBaseline = 0;
 		fakeThis.contextUsageRefresh = { generation: 0, lastSuccessGeneration: 0 };
+		fakeThis.subagentSummaryLine = { invalidate: vi.fn() };
+		fakeThis.ui = { requestRender: vi.fn() };
 		fakeThis.connectionState = { sessionId: "session-A", contextUsage: undefined };
 		fakeThis.patchConnectionState = (patch) => fakeThis.patched.push(patch);
 		fakeThis.agentConnection = { getSessionStats };

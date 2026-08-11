@@ -10932,7 +10932,6 @@ export class AgentSession {
 		let totalOutput = 0;
 		let totalCacheRead = 0;
 		let totalCacheWrite = 0;
-		let totalCost = 0;
 
 		for (const message of state.messages) {
 			if (message.role === "assistant") {
@@ -10942,9 +10941,9 @@ export class AgentSession {
 				totalOutput += assistantMsg.usage.output;
 				totalCacheRead += assistantMsg.usage.cacheRead;
 				totalCacheWrite += assistantMsg.usage.cacheWrite;
-				totalCost += assistantMsg.usage.cost.total;
 			}
 		}
+		const { totalUsage } = computeOwnAndTotalUsage(this.sessionManager.getBranch(), this.sessionManager.getEntries());
 
 		return {
 			sessionFile: this.sessionFile,
@@ -10961,7 +10960,7 @@ export class AgentSession {
 				cacheWrite: totalCacheWrite,
 				total: totalInput + totalOutput + totalCacheRead + totalCacheWrite,
 			},
-			cost: totalCost,
+			cost: totalUsage.cost.total,
 			contextUsage: this.getContextUsage(),
 		};
 	}
