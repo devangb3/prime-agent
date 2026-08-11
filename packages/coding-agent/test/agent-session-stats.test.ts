@@ -10,7 +10,7 @@ import { createTestResourceLoader } from "./utilities.js";
 
 const model = getModel("anthropic", "claude-sonnet-4-5")!;
 
-function createUsage(totalTokens: number): Usage {
+function createUsage(totalTokens: number, cost = 0): Usage {
 	return {
 		input: totalTokens,
 		output: 0,
@@ -18,23 +18,23 @@ function createUsage(totalTokens: number): Usage {
 		cacheWrite: 0,
 		totalTokens,
 		cost: {
-			input: 0,
+			input: cost,
 			output: 0,
 			cacheRead: 0,
 			cacheWrite: 0,
-			total: 0,
+			total: cost,
 		},
 	};
 }
 
-function createAssistantMessage(text: string, totalTokens: number, timestamp: number): AssistantMessage {
+function createAssistantMessage(text: string, totalTokens: number, timestamp: number, cost = 0): AssistantMessage {
 	return {
 		role: "assistant",
 		content: [{ type: "text", text }],
 		api: model.api,
 		provider: model.provider,
 		model: model.id,
-		usage: createUsage(totalTokens),
+		usage: createUsage(totalTokens, cost),
 		stopReason: "stop",
 		timestamp,
 	};
@@ -136,6 +136,23 @@ describe("AgentSession.getSessionStats", () => {
 			expect(stats.contextUsage).toBeDefined();
 			expect(stats.contextUsage?.tokens).toBe(25_000);
 			expect(stats.contextUsage?.percent).toBe((25_000 / model.contextWindow) * 100);
+		} finally {
+			session.dispose();
+		}
+	});
+
+	it("keeps cumulative session cost after compaction", () => {
+		const { session, sessionManager } = createSession();
+
+		try {
+			sessionManager.appendMessage(createUserMessage("first", 1));
+			sessionManager.appendMessage(createAssistantMessage("response1", 180_000, 2, 0.4));
+			const keptUserId = sessionManager.appendMessage(createUserMessage("second", 3));
+			sessionManager.appendCompaction("summary", keptUserId, 180_000);
+			sessionManager.appendMessage(createAssistantMessage("response2", 20_000, 4, 0.1));
+			syncAgentMessages(session, sessionManager);
+
+			expect(session.getSessionStats().cost).toBeCloseTo(0.5);
 		} finally {
 			session.dispose();
 		}

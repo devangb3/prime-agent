@@ -278,6 +278,14 @@ const HEARTBEAT_LEGACY_PROMPT_MIN_TOLERANCE_MS = 15_000;
 const HEARTBEAT_LEGACY_PROMPT_MAX_TOLERANCE_MS = 120_000;
 const MODEL_CATALOG_REFRESH_TTL_MS = 60_000;
 const FEATURE_HINT_DELAY_MS = 5_000;
+const SESSION_COST_FORMATTER = new Intl.NumberFormat("en-US", {
+	style: "currency",
+	currency: "USD",
+});
+
+export function formatSessionCost(cost: number | undefined): string | undefined {
+	return cost !== undefined && Number.isFinite(cost) && cost > 0 ? SESSION_COST_FORMATTER.format(cost) : undefined;
+}
 
 export const START_HINTS = [
 	'Try "refactor @<filepath>"',
@@ -884,6 +892,7 @@ export class InteractiveMode {
 	private contextUsageTokenBaseline = 0;
 	// Refresh ordering: a stale failure must never clobber a newer success.
 	private contextUsageRefresh = { generation: 0, lastSuccessGeneration: 0 };
+	private sessionCost: number | undefined;
 	private readonly defaultHiddenThinkingLabel = "Thinking...";
 	private hiddenThinkingLabel = this.defaultHiddenThinkingLabel;
 
@@ -2578,6 +2587,9 @@ export class InteractiveMode {
 	}
 
 	private applyConnectionStateSnapshot(state: AgentConnectionState): void {
+		if (this.connectionState?.sessionId !== state.sessionId) {
+			this.sessionCost = undefined;
+		}
 		this.bindPromptStashSession(state.sessionId);
 		this.connectionState = state;
 		this.updateScopedHeartbeats();
@@ -2634,7 +2646,10 @@ export class InteractiveMode {
 		this.contextUsageRefresh.lastSuccessGeneration = generation;
 		// Anything counted so far is now reflected in the snapshot; only later output is in-flight.
 		this.contextUsageTokenBaseline = this.activityTracker.getStatus().tokens;
+		this.sessionCost = stats.cost;
 		this.patchConnectionState({ contextUsage: stats.contextUsage });
+		this.subagentSummaryLine.invalidate();
+		this.ui.requestRender();
 	}
 
 	private updateConnectionStateFromEvent(event: AgentConnectionSessionEvent): void {
@@ -6025,7 +6040,11 @@ export class InteractiveMode {
 			usage && typeof usage.tokens === "number" && typeof usage.percent === "number"
 				? `${formatTokenCount(usage.tokens)} (${Math.round(usage.percent)}%)`
 				: undefined;
-		return [goalLabel, heartbeatLabel, contextLabel].filter((label) => label !== undefined).join(" · ") || undefined;
+		const costLabel = formatSessionCost(this.sessionCost);
+		return (
+			[goalLabel, heartbeatLabel, contextLabel, costLabel].filter((label) => label !== undefined).join(" · ") ||
+			undefined
+		);
 	}
 
 	private getTrayHeartbeatLabel(): string | undefined {
@@ -6500,7 +6519,10 @@ export class InteractiveMode {
 	}
 
 	async renderInitialMessages(): Promise<void> {
-		const snapshot = await this.agentConnection.getInitialSnapshot();
+		const [snapshot, stats] = await Promise.all([
+			this.agentConnection.getInitialSnapshot(),
+			this.agentConnection.getSessionStats().catch(() => undefined),
+		]);
 		const context = this.getSessionContextFromConnectionSnapshot(snapshot);
 		const state = snapshot.state;
 		const streamingMessage = snapshot.streamingMessage;
@@ -6508,6 +6530,7 @@ export class InteractiveMode {
 		this.seedSubagentSummary(snapshot.children);
 		this.setSessionHasMessages(context.messages.length > 0);
 		this.applyConnectionStateSnapshot(state);
+		this.sessionCost = stats?.sessionId === state.sessionId ? stats.cost : undefined;
 		await this.renderSessionContext(context, {
 			updateFooter: true,
 			populateHistory: true,
