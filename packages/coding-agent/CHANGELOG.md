@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 - Added `compat.openRouterWebSearch` for enabling OpenRouter server-side web search on selected models.
+- Changed the default RLM maximum recursion depth from 1 to 2.
 - Added a Linux x86_64 `dprime-agent` launcher that follows verified standalone builds from this fork's `main` branch.
 - Added the current session cost to the lower tray when pricing data is available.
 - Added `app.messages.expand` (`ctrl+p`) to collapse or expand agent-to-agent messages separately from `ctrl+o` tool output.

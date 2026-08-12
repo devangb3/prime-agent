@@ -465,7 +465,7 @@ export interface AgentSessionConfig {
 	sessionStartEvent?: SessionStartEvent;
 	/** Current RLM recursion depth. Root sessions default to RLM_DEPTH or 0. */
 	rlmDepth?: number;
-	/** Maximum RLM recursion depth. Defaults to RLM_MAX_DEPTH or 1. */
+	/** Maximum RLM recursion depth. Defaults to RLM_MAX_DEPTH or 2. */
 	rlmMaxDepth?: number;
 	/** Directory exposed to the kernel as RLM_SESSION_DIR. */
 	rlmSessionDir?: string;
@@ -1591,9 +1591,9 @@ export class AgentSession {
 		}
 		const env = process.env.RLM_MAX_DEPTH;
 		if (env !== undefined && env !== "") {
-			return { maxDepth: parseDepth(env, 1, "RLM_MAX_DEPTH"), source: "env" };
+			return { maxDepth: parseDepth(env, 2, "RLM_MAX_DEPTH"), source: "env" };
 		}
-		return { maxDepth: 1, source: "default" };
+		return { maxDepth: 2, source: "default" };
 	}
 
 	private _loadPersistedGoalState(): GoalState {
