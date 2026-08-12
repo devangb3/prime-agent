@@ -1,15 +1,13 @@
 // TODO: reconsider persistent kernel vs stateless `python -c` once RLM-1 weights land.
 import { type ChildProcess, spawn } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { registerSessionResourceCleanup } from "@earendil-works/pi-ai";
 import { v4 as uuid } from "uuid";
-import type * as ZeroMQ from "zeromq";
-import { getPackageDir } from "../../config.js";
+import { Dealer, Subscriber } from "zeromq";
 import { ensureKernelPython, type KernelBootstrapProgressHandler, type KernelPythonSkill } from "./bootstrap.js";
 import { ForkServerUnavailable, forkKernel, isForkServerEnabled } from "./fork-server.js";
 import {
@@ -23,24 +21,6 @@ import {
 	type RestoreResult,
 	type SnapshotResult,
 } from "./state-snapshot.js";
-
-type DealerSocket = ZeroMQ.Dealer;
-type SubscriberSocket = ZeroMQ.Subscriber;
-type ZeroMQConstructors = Pick<typeof ZeroMQ, "Dealer" | "Subscriber">;
-
-let zeroMQConstructors: ZeroMQConstructors | undefined;
-
-function loadZeroMQ(): ZeroMQConstructors {
-	if (!zeroMQConstructors) {
-		const packageDir = getPackageDir();
-		const requireFromPackageDir = createRequire(join(packageDir, "package.json"));
-		const packagedZeroMQ = join(packageDir, "node_modules", "zeromq");
-		zeroMQConstructors = requireFromPackageDir(
-			existsSync(packagedZeroMQ) ? packagedZeroMQ : "zeromq",
-		) as typeof ZeroMQ;
-	}
-	return zeroMQConstructors;
-}
 
 const DELIM = Buffer.from("<IDS|MSG>");
 const PROTOCOL_VERSION = "5.3";
@@ -543,9 +523,9 @@ export class KernelManager {
 	private kernelPid?: number;
 	/** Polls a forked kernel's pid for death (no "exit" event on a non-child). */
 	private forkedLivenessTimer?: ReturnType<typeof globalThis.setInterval>;
-	private shell?: DealerSocket;
-	private iopub?: SubscriberSocket;
-	private control?: DealerSocket;
+	private shell?: Dealer;
+	private iopub?: Subscriber;
+	private control?: Dealer;
 	private iopubPumpPromise?: Promise<void>;
 	private connection?: ConnectionInfo;
 	private tempDir?: string;
@@ -707,7 +687,6 @@ export class KernelManager {
 			throw e;
 		}
 
-		const { Dealer, Subscriber } = loadZeroMQ();
 		this.shell = new Dealer();
 		this.iopub = new Subscriber();
 		this.control = new Dealer();

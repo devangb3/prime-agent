@@ -55,7 +55,7 @@ The installer downloads a versioned release, verifies its SHA-256 checksum, inst
 
 ### DPrime Agent main build
 
-This fork also publishes a Linux x86_64 standalone build from every successful push to `main`. Install its launcher with:
+This fork also publishes a Linux x86_64 Node package build from every successful push to `main`. Node.js 22.8.0 or newer is required. Install its launcher with:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/devangb3/prime-agent/main/scripts/install-dprime-agent.sh | sh

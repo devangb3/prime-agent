@@ -317,19 +317,15 @@ describe("builtin skills", () => {
 			expect(script).toMatch(/cp -r skills binaries\/\$platform\//);
 		});
 
-		it("binary release script ships ZeroMQ native runtime files", () => {
-			const script = readFileSync(join(repoRoot, "scripts", "build-binaries.sh"), "utf-8");
-			expect(script).toContain("--external koffi --external zeromq");
-			expect(script).toContain("copy_node_package zeromq binaries/$platform/node_modules");
-			expect(script).toContain("copy_node_package cmake-ts binaries/$platform/node_modules");
-			expect(script).toContain("$platform/node_modules/zeromq/build/manifest.json");
+		it("dprime-agent release uses the upstream Node package runtime", () => {
+			const workflow = readFileSync(join(repoRoot, ".github", "workflows", "dprime-agent-main.yml"), "utf-8");
+			expect(workflow).toContain("npm run release:pack");
+			expect(workflow).toContain('npm install --prefix "$smoke_dir" --omit=dev');
+			expect(workflow).not.toContain("setup-bun");
+			expect(workflow).not.toContain("build-binaries.sh");
 
 			const kernel = readFileSync(join(packageRoot, "src", "core", "kernel", "index.ts"), "utf-8");
-			expect(kernel).not.toContain('import { Dealer, Subscriber } from "zeromq";');
-			expect(kernel).toContain('import type * as ZeroMQ from "zeromq";');
-			expect(kernel).toContain('createRequire(join(packageDir, "package.json"))');
-			expect(kernel).toContain('join(packageDir, "node_modules", "zeromq")');
-			expect(kernel).toContain('existsSync(packagedZeroMQ) ? packagedZeroMQ : "zeromq"');
+			expect(kernel).toContain('import { Dealer, Subscriber } from "zeromq";');
 		});
 
 		it("release packer includes skills in the packed package", () => {

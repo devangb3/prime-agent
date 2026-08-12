@@ -16,22 +16,26 @@ if [ -z "${HOME:-}" ]; then
 	exit 1
 fi
 
-for command in awk curl flock mktemp readlink sha256sum tar; do
+for command in awk curl flock mktemp node npm readlink sha256sum; do
 	if ! command -v "$command" >/dev/null 2>&1; then
 		printf 'error: dprime-agent requires %s.\n' "$command" >&2
 		exit 1
 	fi
 done
 
+if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 8) ? 0 : 1)'; then
+	printf 'error: dprime-agent requires Node.js 22.8.0 or newer.\n' >&2
+	exit 1
+fi
+
 data_root="${DPRIME_AGENT_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/dprime-agent}"
 builds_dir="$data_root/builds"
 current_link="$data_root/current"
 lock_file="$data_root/update.lock"
-current_executable="$current_link/dprime-agent"
+current_executable="$current_link/node_modules/.bin/dprime-agent"
 refresh_error=
 manifest_temp=
-archive_temp=
-entries_temp=
+package_temp=
 stage_dir=
 next_link=
 
@@ -40,8 +44,7 @@ exec 9>"$lock_file"
 
 cleanup() {
 	[ -z "$manifest_temp" ] || rm -f -- "$manifest_temp"
-	[ -z "$archive_temp" ] || rm -f -- "$archive_temp"
-	[ -z "$entries_temp" ] || rm -f -- "$entries_temp"
+	[ -z "$package_temp" ] || rm -f -- "$package_temp"
 	[ -z "$stage_dir" ] || rm -rf -- "$stage_dir"
 	[ -z "$next_link" ] || rm -f -- "$next_link"
 	flock -u 9 >/dev/null 2>&1 || true
@@ -59,7 +62,7 @@ set_refresh_error() {
 
 validate_manifest() {
 	manifest_commit=$(sed -n 's/^commit=//p' "$manifest_temp")
-	manifest_archive=$(sed -n 's/^archive=//p' "$manifest_temp")
+	manifest_package=$(sed -n 's/^package=//p' "$manifest_temp")
 	manifest_sha256=$(sed -n 's/^sha256=//p' "$manifest_temp")
 
 	case "$manifest_commit" in
@@ -67,8 +70,13 @@ validate_manifest() {
 	esac
 	[ "${#manifest_commit}" -eq 40 ] || return 1
 
-	expected_archive="dprime-agent-linux-x64-${manifest_commit}.tar.gz"
-	[ "$manifest_archive" = "$expected_archive" ] || return 1
+	case "$manifest_package" in
+		dprime-agent-*.tgz) ;;
+		*) return 1 ;;
+	esac
+	case "$manifest_package" in
+		*/*|*..*) return 1 ;;
+	esac
 
 	case "$manifest_sha256" in
 		''|*[!0-9a-f]*) return 1 ;;
@@ -94,43 +102,23 @@ activate_release() {
 		return 0
 	fi
 
-	archive_temp=$(mktemp "$data_root/.archive.XXXXXX") || {
+	package_temp=$(mktemp "$data_root/.package.XXXXXX.tgz") || {
 		flock -u 9
-		set_refresh_error "could not create a temporary archive"
+		set_refresh_error "could not create a temporary package"
 		return 1
 	}
 
 	if ! curl --fail --location --silent --show-error --connect-timeout 5 --retry 2 \
-		"$DPRIME_AGENT_RELEASE_BASE_URL/$manifest_archive" --output "$archive_temp"; then
+		"$DPRIME_AGENT_RELEASE_BASE_URL/$manifest_package" --output "$package_temp"; then
 		flock -u 9
-		set_refresh_error "could not download $manifest_archive"
+		set_refresh_error "could not download $manifest_package"
 		return 1
 	fi
 
-	actual_sha256=$(sha256sum "$archive_temp" | awk '{print $1}')
+	actual_sha256=$(sha256sum "$package_temp" | awk '{print $1}')
 	if [ "$actual_sha256" != "$manifest_sha256" ]; then
 		flock -u 9
-		set_refresh_error "checksum verification failed for $manifest_archive"
-		return 1
-	fi
-
-	entries_temp=$(mktemp "$data_root/.entries.XXXXXX") || {
-		flock -u 9
-		set_refresh_error "could not inspect the downloaded archive"
-		return 1
-	}
-	if ! tar -tzf "$archive_temp" >"$entries_temp"; then
-		flock -u 9
-		set_refresh_error "could not read the downloaded archive"
-		return 1
-	fi
-	if ! awk '
-		$0 !~ /^dprime-agent\// { invalid = 1 }
-		$0 ~ /(^|\/)\.\.($|\/)/ { invalid = 1 }
-		END { exit invalid }
-	' "$entries_temp"; then
-		flock -u 9
-		set_refresh_error "the downloaded archive contains an unsafe path"
+		set_refresh_error "checksum verification failed for $manifest_package"
 		return 1
 	fi
 
@@ -139,19 +127,20 @@ activate_release() {
 		set_refresh_error "could not create a temporary build directory"
 		return 1
 	}
-	if ! tar -xzf "$archive_temp" -C "$stage_dir"; then
+	package_dir="$stage_dir/dprime-agent"
+	if ! npm install --prefix "$package_dir" --omit=dev --loglevel=error "$package_temp"; then
 		flock -u 9
-		set_refresh_error "could not extract the downloaded archive"
+		set_refresh_error "could not install $manifest_package"
 		return 1
 	fi
-	if [ ! -x "$stage_dir/dprime-agent/dprime-agent" ]; then
+	if [ ! -x "$package_dir/node_modules/.bin/dprime-agent" ]; then
 		flock -u 9
-		set_refresh_error "the downloaded archive does not contain the dprime-agent executable"
+		set_refresh_error "the downloaded package does not contain the dprime-agent executable"
 		return 1
 	fi
 
 	rm -rf -- "$target_dir"
-	if ! mv "$stage_dir/dprime-agent" "$target_dir"; then
+	if ! mv "$package_dir" "$target_dir"; then
 		flock -u 9
 		set_refresh_error "could not activate the downloaded build"
 		return 1

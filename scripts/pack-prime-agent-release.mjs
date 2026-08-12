@@ -34,6 +34,7 @@ const releasePackages = [
 
 function parseArgs(args) {
 	const parsed = {
+		artifactBaseUrl: undefined,
 		baseUrl: defaultBaseUrl,
 		channel: "stable",
 		outDir: defaultOutputDir,
@@ -43,6 +44,13 @@ function parseArgs(args) {
 	for (let i = 0; i < args.length; i += 1) {
 		const arg = args[i];
 		switch (arg) {
+			case "--artifact-base-url": {
+				const value = args[i + 1];
+				if (!value) throw new Error("--artifact-base-url requires a value");
+				parsed.artifactBaseUrl = value;
+				i += 1;
+				break;
+			}
 			case "--channel": {
 				const value = args[i + 1];
 				if (!value || !releaseChannels.has(value)) {
@@ -88,11 +96,12 @@ function parseArgs(args) {
 	}
 
 	parsed.baseUrl = parsed.baseUrl.replace(/\/+$/, "");
+	parsed.artifactBaseUrl = parsed.artifactBaseUrl?.replace(/\/+$/, "");
 	return parsed;
 }
 
 function printHelp() {
-	console.log(`Usage: node scripts/pack-prime-agent-release.mjs --base-url url [--channel stable|beta] [--version x.y.z] [--out-dir path]
+	console.log(`Usage: node scripts/pack-prime-agent-release.mjs --base-url url [--artifact-base-url url] [--channel stable|beta] [--version x.y.z] [--out-dir path]
 
 Creates private npm tarballs for R2 distribution:
 
@@ -157,6 +166,12 @@ function npmTarballName(packageName, version) {
 
 function releaseTarballUrl(baseUrl, version, tarballFile) {
 	return `${baseUrl}/releases/v${version}/${tarballFile}`;
+}
+
+function artifactUrl(args, version, tarballFile) {
+	return args.artifactBaseUrl
+		? `${args.artifactBaseUrl}/${tarballFile}`
+		: releaseTarballUrl(args.baseUrl, version, tarballFile);
 }
 
 function rewriteInternalDependencies(dependencies, internalPackageUrls) {
@@ -271,7 +286,7 @@ function main() {
 		if (releasePackage.packageDir === "coding-agent") continue;
 		const sourcePackageName = sourcePackageNames.get(releasePackage.packageDir);
 		const artifactFile = artifactFiles.get(releasePackage.packageDir);
-		internalPackageUrls.set(sourcePackageName, releaseTarballUrl(args.baseUrl, releaseVersion, artifactFile));
+		internalPackageUrls.set(sourcePackageName, artifactUrl(args, releaseVersion, artifactFile));
 	}
 
 	const stagingRoot = join(args.outDir, "packages");

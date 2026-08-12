@@ -89,26 +89,6 @@ npm run build
 echo "==> Building binaries..."
 cd packages/coding-agent
 
-copy_node_package() {
-    local package_name="$1"
-    local target_node_modules="$2"
-    local source_dir
-    source_dir=$(node -e '
-const fs = require("node:fs");
-const path = require("node:path");
-let dir = path.dirname(require.resolve(process.argv[1]));
-while (dir !== path.dirname(dir) && !fs.existsSync(path.join(dir, "package.json"))) {
-  dir = path.dirname(dir);
-}
-if (!fs.existsSync(path.join(dir, "package.json"))) {
-  throw new Error(`Could not locate package root for ${process.argv[1]}`);
-}
-process.stdout.write(dir);
-' "$package_name")
-    mkdir -p "$target_node_modules"
-    cp -r "$source_dir" "$target_node_modules/"
-}
-
 # Clean previous builds
 rm -rf binaries
 mkdir -p binaries/{darwin-arm64,darwin-x64,linux-x64,linux-arm64,windows-x64}
@@ -122,12 +102,14 @@ fi
 
 for platform in "${PLATFORMS[@]}"; do
     echo "Building for $platform..."
-    # Externalize native packages so their manifests and platform .node files
-    # resolve from node_modules next to the executable.
+    # Externalize koffi to avoid embedding all 18 platform .node files (~74MB)
+    # into every binary. Koffi is only used on Windows for VT input and the
+    # call site has a try/catch fallback. For Windows builds, we copy the
+    # appropriate .node file alongside the binary below.
     if [[ "$platform" == "windows-x64" ]]; then
-        bun build --compile --external koffi --external zeromq --target=bun-$platform ./dist/bun/cli.js --outfile binaries/$platform/pi.exe
+        bun build --compile --external koffi --target=bun-$platform ./dist/bun/cli.js --outfile binaries/$platform/pi.exe
     else
-        bun build --compile --external koffi --external zeromq --target=bun-$platform ./dist/bun/cli.js --outfile binaries/$platform/pi
+        bun build --compile --external koffi --target=bun-$platform ./dist/bun/cli.js --outfile binaries/$platform/pi
     fi
 done
 
@@ -147,9 +129,6 @@ for platform in "${PLATFORMS[@]}"; do
     cp -r docs binaries/$platform/
     cp -r examples binaries/$platform/
     cp -r skills binaries/$platform/
-    mkdir -p binaries/$platform/node_modules
-    copy_node_package zeromq binaries/$platform/node_modules
-    copy_node_package cmake-ts binaries/$platform/node_modules
 
     # Copy koffi native module for Windows (needed for VT input support)
     if [[ "$platform" == "windows-x64" ]]; then
@@ -183,11 +162,6 @@ for platform in "${PLATFORMS[@]}"; do
         mkdir -p $platform && (cd $platform && unzip -q ../pi-$platform.zip)
     else
         tar -xzf pi-$platform.tar.gz && mv pi $platform
-    fi
-    if [[ ! -f "$platform/node_modules/zeromq/build/manifest.json" ]]; then
-        echo "Missing ZeroMQ native manifest in binaries/$platform" >&2
-        find "$platform/node_modules" -maxdepth 3 -type f -print >&2 || true
-        exit 1
     fi
 done
 

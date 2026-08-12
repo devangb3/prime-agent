@@ -17,12 +17,14 @@ const tempRoot = mkdtempSync(join(tmpdir(), "dprime-agent-launcher-"));
 const releaseDir = join(tempRoot, "release");
 const payloadDir = join(tempRoot, "payload");
 const installBinDir = join(tempRoot, "bin");
+const fakeBinDir = join(tempRoot, "fake-bin");
 const dataDir = join(tempRoot, "data");
 const invocationDir = join(tempRoot, "project with spaces");
 
 try {
 	mkdirSync(releaseDir, { recursive: true });
 	mkdirSync(invocationDir, { recursive: true });
+	writeFakeNpm();
 
 	const firstCommit = "1111111111111111111111111111111111111111";
 	writeRelease(firstCommit, "first");
@@ -46,20 +48,40 @@ console.log("dprime-agent launcher check passed.");
 
 function writeRelease(commit, label) {
 	rmSync(payloadDir, { recursive: true, force: true });
-	const packageDir = join(payloadDir, "dprime-agent");
-	mkdirSync(packageDir, { recursive: true });
-	const executablePath = join(packageDir, "dprime-agent");
-	writeFileSync(executablePath, `#!/bin/sh\nprintf '${label}:%s\\n' "$PWD"\n`);
-	chmodSync(executablePath, 0o755);
-
-	const archiveName = `dprime-agent-linux-x64-${commit}.tar.gz`;
-	const archivePath = join(releaseDir, archiveName);
-	run("tar", ["-czf", archivePath, "-C", payloadDir, "dprime-agent"]);
-	const sha256 = createHash("sha256").update(readFileSync(archivePath)).digest("hex");
+	mkdirSync(payloadDir, { recursive: true });
+	const packageName = `dprime-agent-0.0.0-main.${commit.slice(0, 7)}.tgz`;
+	const packagePath = join(releaseDir, packageName);
+	writeFileSync(packagePath, `#!/bin/sh\nprintf '${label}:%s\\n' "$PWD"\n`);
+	const sha256 = createHash("sha256").update(readFileSync(packagePath)).digest("hex");
 	writeFileSync(
 		join(releaseDir, "dprime-agent-main.env"),
-		`commit=${commit}\narchive=${archiveName}\nsha256=${sha256}\n`,
+		`commit=${commit}\npackage=${packageName}\nsha256=${sha256}\n`,
 	);
+}
+
+function writeFakeNpm() {
+	mkdirSync(fakeBinDir, { recursive: true });
+	const npmPath = join(fakeBinDir, "npm");
+	writeFileSync(
+		npmPath,
+		`#!/bin/sh
+set -eu
+prefix=
+package_path=
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		--prefix) prefix="$2"; shift 2 ;;
+		--omit=dev|--loglevel=error|install) shift ;;
+		*) package_path="$1"; shift ;;
+	esac
+done
+[ "\${package_path##*.}" = tgz ]
+mkdir -p "$prefix/node_modules/.bin"
+cp "$package_path" "$prefix/node_modules/.bin/dprime-agent"
+chmod 0755 "$prefix/node_modules/.bin/dprime-agent"
+`,
+	);
+	chmodSync(npmPath, 0o755);
 }
 
 function runInstaller() {
@@ -68,6 +90,7 @@ function runInstaller() {
 		DPRIME_AGENT_HOME: dataDir,
 		DPRIME_AGENT_LAUNCHER_URL: pathToFileURL(launcherSourcePath).href,
 		DPRIME_AGENT_RELEASE_BASE_URL: pathToFileURL(releaseDir).href,
+		PATH: `${fakeBinDir}:${process.env.PATH}`,
 	});
 	if (!result.stdout.includes(`Installed dprime-agent at ${join(installBinDir, "dprime-agent")}`)) {
 		throw new Error(`installer did not report the installed launcher:\n${result.stdout}`);
@@ -78,6 +101,7 @@ function assertInvocation(expectedLabel) {
 	const result = run(join(installBinDir, "dprime-agent"), [], {
 		DPRIME_AGENT_HOME: dataDir,
 		DPRIME_AGENT_RELEASE_BASE_URL: pathToFileURL(releaseDir).href,
+		PATH: `${fakeBinDir}:${process.env.PATH}`,
 	}, invocationDir);
 	const expected = `${expectedLabel}:${invocationDir}`;
 	if (result.stdout.trim() !== expected) {
