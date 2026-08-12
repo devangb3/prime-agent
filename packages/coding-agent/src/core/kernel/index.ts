@@ -1,7 +1,7 @@
 // TODO: reconsider persistent kernel vs stateless `python -c` once RLM-1 weights land.
 import { type ChildProcess, spawn } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,7 +34,10 @@ function loadZeroMQ(): ZeroMQConstructors {
 	if (!zeroMQConstructors) {
 		const packageDir = getPackageDir();
 		const requireFromPackageDir = createRequire(join(packageDir, "package.json"));
-		zeroMQConstructors = requireFromPackageDir(join(packageDir, "node_modules", "zeromq")) as typeof ZeroMQ;
+		const packagedZeroMQ = join(packageDir, "node_modules", "zeromq");
+		zeroMQConstructors = requireFromPackageDir(
+			existsSync(packagedZeroMQ) ? packagedZeroMQ : "zeromq",
+		) as typeof ZeroMQ;
 	}
 	return zeroMQConstructors;
 }

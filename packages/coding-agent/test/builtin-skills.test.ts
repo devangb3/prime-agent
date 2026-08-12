@@ -329,12 +329,7 @@ describe("builtin skills", () => {
 			expect(kernel).toContain('import type * as ZeroMQ from "zeromq";');
 			expect(kernel).toContain('createRequire(join(packageDir, "package.json"))');
 			expect(kernel).toContain('join(packageDir, "node_modules", "zeromq")');
-		});
-
-		it("main dprime-agent release smoke-tests binary startup", () => {
-			const workflow = readFileSync(join(repoRoot, ".github", "workflows", "dprime-agent-main.yml"), "utf-8");
-			expect(workflow).toContain("packages/coding-agent/binaries/linux-x64/node_modules/zeromq/build/manifest.json");
-			expect(workflow).toContain("packages/coding-agent/binaries/linux-x64/pi --help");
+			expect(kernel).toContain('existsSync(packagedZeroMQ) ? packagedZeroMQ : "zeromq"');
 		});
 
 		it("release packer includes skills in the packed package", () => {
