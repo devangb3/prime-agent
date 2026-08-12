@@ -40,6 +40,9 @@ jobs:
       - name: Build standalone binary
         run: ./scripts/build-binaries.sh --skip-deps --platform linux-x64
 
+      - name: Smoke test standalone binary
+        run: packages/coding-agent/binaries/linux-x64/pi --help
+
       - name: Check
         run: npm run check
 

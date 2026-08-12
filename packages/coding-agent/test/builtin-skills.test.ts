@@ -317,6 +317,18 @@ describe("builtin skills", () => {
 			expect(script).toMatch(/cp -r skills binaries\/\$platform\//);
 		});
 
+		it("binary release script ships ZeroMQ native runtime files", () => {
+			const script = readFileSync(join(repoRoot, "scripts", "build-binaries.sh"), "utf-8");
+			expect(script).toContain("--external koffi --external zeromq");
+			expect(script).toMatch(/cp -r \.\.\/\.\.\/node_modules\/zeromq binaries\/\$platform\/node_modules\//);
+			expect(script).toMatch(/cp -r \.\.\/\.\.\/node_modules\/cmake-ts binaries\/\$platform\/node_modules\//);
+		});
+
+		it("main dprime-agent release smoke-tests binary startup", () => {
+			const workflow = readFileSync(join(repoRoot, ".github", "workflows", "dprime-agent-main.yml"), "utf-8");
+			expect(workflow).toContain("packages/coding-agent/binaries/linux-x64/pi --help");
+		});
+
 		it("release packer includes skills in the packed package", () => {
 			const script = readFileSync(join(repoRoot, "scripts", "pack-prime-agent-release.mjs"), "utf-8");
 			expect(script).toContain('"skills"');

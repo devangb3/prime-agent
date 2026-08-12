@@ -102,14 +102,12 @@ fi
 
 for platform in "${PLATFORMS[@]}"; do
     echo "Building for $platform..."
-    # Externalize koffi to avoid embedding all 18 platform .node files (~74MB)
-    # into every binary. Koffi is only used on Windows for VT input and the
-    # call site has a try/catch fallback. For Windows builds, we copy the
-    # appropriate .node file alongside the binary below.
+    # Externalize native packages so their manifests and platform .node files
+    # resolve from node_modules next to the executable.
     if [[ "$platform" == "windows-x64" ]]; then
-        bun build --compile --external koffi --target=bun-$platform ./dist/bun/cli.js --outfile binaries/$platform/pi.exe
+        bun build --compile --external koffi --external zeromq --target=bun-$platform ./dist/bun/cli.js --outfile binaries/$platform/pi.exe
     else
-        bun build --compile --external koffi --target=bun-$platform ./dist/bun/cli.js --outfile binaries/$platform/pi
+        bun build --compile --external koffi --external zeromq --target=bun-$platform ./dist/bun/cli.js --outfile binaries/$platform/pi
     fi
 done
 
@@ -129,6 +127,9 @@ for platform in "${PLATFORMS[@]}"; do
     cp -r docs binaries/$platform/
     cp -r examples binaries/$platform/
     cp -r skills binaries/$platform/
+    mkdir -p binaries/$platform/node_modules
+    cp -r ../../node_modules/zeromq binaries/$platform/node_modules/
+    cp -r ../../node_modules/cmake-ts binaries/$platform/node_modules/
 
     # Copy koffi native module for Windows (needed for VT input support)
     if [[ "$platform" == "windows-x64" ]]; then
