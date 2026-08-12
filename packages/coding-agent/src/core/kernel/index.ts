@@ -24,10 +24,20 @@ import {
 	type SnapshotResult,
 } from "./state-snapshot.js";
 
-const requireFromPackageDir = createRequire(join(getPackageDir(), "package.json"));
-const { Dealer, Subscriber } = requireFromPackageDir("zeromq") as typeof ZeroMQ;
 type DealerSocket = ZeroMQ.Dealer;
 type SubscriberSocket = ZeroMQ.Subscriber;
+type ZeroMQConstructors = Pick<typeof ZeroMQ, "Dealer" | "Subscriber">;
+
+let zeroMQConstructors: ZeroMQConstructors | undefined;
+
+function loadZeroMQ(): ZeroMQConstructors {
+	if (!zeroMQConstructors) {
+		const packageDir = getPackageDir();
+		const requireFromPackageDir = createRequire(join(packageDir, "package.json"));
+		zeroMQConstructors = requireFromPackageDir(join(packageDir, "node_modules", "zeromq")) as typeof ZeroMQ;
+	}
+	return zeroMQConstructors;
+}
 
 const DELIM = Buffer.from("<IDS|MSG>");
 const PROTOCOL_VERSION = "5.3";
@@ -694,6 +704,7 @@ export class KernelManager {
 			throw e;
 		}
 
+		const { Dealer, Subscriber } = loadZeroMQ();
 		this.shell = new Dealer();
 		this.iopub = new Subscriber();
 		this.control = new Dealer();

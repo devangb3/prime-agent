@@ -320,17 +320,20 @@ describe("builtin skills", () => {
 		it("binary release script ships ZeroMQ native runtime files", () => {
 			const script = readFileSync(join(repoRoot, "scripts", "build-binaries.sh"), "utf-8");
 			expect(script).toContain("--external koffi --external zeromq");
-			expect(script).toMatch(/cp -r \.\.\/\.\.\/node_modules\/zeromq binaries\/\$platform\/node_modules\//);
-			expect(script).toMatch(/cp -r \.\.\/\.\.\/node_modules\/cmake-ts binaries\/\$platform\/node_modules\//);
+			expect(script).toContain("copy_node_package zeromq binaries/$platform/node_modules");
+			expect(script).toContain("copy_node_package cmake-ts binaries/$platform/node_modules");
+			expect(script).toContain("$platform/node_modules/zeromq/build/manifest.json");
 
 			const kernel = readFileSync(join(packageRoot, "src", "core", "kernel", "index.ts"), "utf-8");
 			expect(kernel).not.toContain('import { Dealer, Subscriber } from "zeromq";');
 			expect(kernel).toContain('import type * as ZeroMQ from "zeromq";');
-			expect(kernel).toContain('createRequire(join(getPackageDir(), "package.json"))');
+			expect(kernel).toContain('createRequire(join(packageDir, "package.json"))');
+			expect(kernel).toContain('join(packageDir, "node_modules", "zeromq")');
 		});
 
 		it("main dprime-agent release smoke-tests binary startup", () => {
 			const workflow = readFileSync(join(repoRoot, ".github", "workflows", "dprime-agent-main.yml"), "utf-8");
+			expect(workflow).toContain("packages/coding-agent/binaries/linux-x64/node_modules/zeromq/build/manifest.json");
 			expect(workflow).toContain("packages/coding-agent/binaries/linux-x64/pi --help");
 		});
 
