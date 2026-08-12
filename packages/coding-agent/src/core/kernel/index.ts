@@ -2,12 +2,14 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { registerSessionResourceCleanup } from "@earendil-works/pi-ai";
 import { v4 as uuid } from "uuid";
-import { Dealer, Subscriber } from "zeromq";
+import type * as ZeroMQ from "zeromq";
+import { getPackageDir } from "../../config.js";
 import { ensureKernelPython, type KernelBootstrapProgressHandler, type KernelPythonSkill } from "./bootstrap.js";
 import { ForkServerUnavailable, forkKernel, isForkServerEnabled } from "./fork-server.js";
 import {
@@ -21,6 +23,11 @@ import {
 	type RestoreResult,
 	type SnapshotResult,
 } from "./state-snapshot.js";
+
+const requireFromPackageDir = createRequire(join(getPackageDir(), "package.json"));
+const { Dealer, Subscriber } = requireFromPackageDir("zeromq") as typeof ZeroMQ;
+type DealerSocket = ZeroMQ.Dealer;
+type SubscriberSocket = ZeroMQ.Subscriber;
 
 const DELIM = Buffer.from("<IDS|MSG>");
 const PROTOCOL_VERSION = "5.3";
@@ -523,9 +530,9 @@ export class KernelManager {
 	private kernelPid?: number;
 	/** Polls a forked kernel's pid for death (no "exit" event on a non-child). */
 	private forkedLivenessTimer?: ReturnType<typeof globalThis.setInterval>;
-	private shell?: Dealer;
-	private iopub?: Subscriber;
-	private control?: Dealer;
+	private shell?: DealerSocket;
+	private iopub?: SubscriberSocket;
+	private control?: DealerSocket;
 	private iopubPumpPromise?: Promise<void>;
 	private connection?: ConnectionInfo;
 	private tempDir?: string;

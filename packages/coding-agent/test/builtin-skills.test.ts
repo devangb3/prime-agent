@@ -322,6 +322,11 @@ describe("builtin skills", () => {
 			expect(script).toContain("--external koffi --external zeromq");
 			expect(script).toMatch(/cp -r \.\.\/\.\.\/node_modules\/zeromq binaries\/\$platform\/node_modules\//);
 			expect(script).toMatch(/cp -r \.\.\/\.\.\/node_modules\/cmake-ts binaries\/\$platform\/node_modules\//);
+
+			const kernel = readFileSync(join(packageRoot, "src", "core", "kernel", "index.ts"), "utf-8");
+			expect(kernel).not.toContain('import { Dealer, Subscriber } from "zeromq";');
+			expect(kernel).toContain('import type * as ZeroMQ from "zeromq";');
+			expect(kernel).toContain('createRequire(join(getPackageDir(), "package.json"))');
 		});
 
 		it("main dprime-agent release smoke-tests binary startup", () => {
