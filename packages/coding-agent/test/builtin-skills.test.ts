@@ -323,6 +323,9 @@ describe("builtin skills", () => {
 			expect(workflow).toContain('npm install --prefix "$smoke_dir" --omit=dev');
 			expect(workflow).not.toContain("setup-bun");
 			expect(workflow).not.toContain("build-binaries.sh");
+			expect(workflow.indexOf("python3 -m pip install --user uv")).toBeLessThan(
+				workflow.indexOf("npm run test:kernel"),
+			);
 
 			const kernel = readFileSync(join(packageRoot, "src", "core", "kernel", "index.ts"), "utf-8");
 			expect(kernel).toContain('import { Dealer, Subscriber } from "zeromq";');
