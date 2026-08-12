@@ -63,6 +63,38 @@ curl -fsSL https://raw.githubusercontent.com/devangb3/prime-agent/main/scripts/i
 
 Run `dprime-agent` from any project directory. The launcher checks for a newer verified `main` build, falls back to its cached build when GitHub is unavailable, and preserves the directory where it was invoked.
 
+### Syncing this fork with upstream
+
+Configure the upstream repository once. Disable automatic tag fetching from `origin` because this fork intentionally moves the `dprime-agent-main` release tag after successful builds; version tags remain available from `upstream`.
+
+```bash
+git remote add upstream git@github.com:PrimeIntellect-ai/prime-agent.git
+git config remote.origin.tagOpt --no-tags
+```
+
+Before each sync, finish or commit local work so `git status --short` is clean. Then merge upstream into this fork's `main` without rewriting published history:
+
+```bash
+git switch main
+git pull --ff-only origin main
+git fetch upstream
+git merge --no-edit upstream/main
+npm ci
+npm run check
+git push origin main
+```
+
+If the merge reports conflicts, inspect them with `git diff --name-only --diff-filter=U`, resolve each file, and stage only the resolved paths with `git add <path>`. When the unmerged-file command returns no output, finish and publish the merge:
+
+```bash
+npm ci
+npm run check
+git commit --no-edit
+git push origin main
+```
+
+Do not push while `git status` says a merge is still in progress; no merge commit exists to push yet.
+
 Start Prime Agent from the repository or directory you want it to work in:
 
 ```bash
